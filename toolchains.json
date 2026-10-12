@@ -1,0 +1,16 @@
+{
+  "sdkVersion": "34.0",
+  "release": "https://github.com/WebAssembly/wasi-sdk/releases/tag/wasi-sdk-34",
+  "hosts": {
+    "x64": {
+      "archive": "wasi-sdk-34.0-x86_64-linux.tar.gz",
+      "archiveSha256": "b761e3a0721dbae9c09a0059e5fdb2bf917d1b4a8a7b430fb3b5aafb0984b2c4",
+      "bytes": 192383077
+    },
+    "arm64": {
+      "archive": "wasi-sdk-34.0-arm64-linux.tar.gz",
+      "archiveSha256": "f7e243dff54d60bcc576e94d6166b69f410f2500ae4a9ceef34315be10e77971",
+      "bytes": 192255247
+    }
+  }
+}

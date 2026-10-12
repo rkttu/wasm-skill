@@ -1,0 +1,9 @@
+.cache/
+.test-output/
+dist/
+skills/
+examples-output/
+reviews/
+src/portable/compiler-data.mjs
+__pycache__/
+*.pyc

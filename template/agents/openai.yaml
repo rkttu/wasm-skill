@@ -1,0 +1,6 @@
+interface:
+  display_name: "C to Wasm — Linux {{ARCH}}"
+  short_description: "Build Wasm modules and verified ABI contracts on Linux"
+  default_prompt: "Use $c-wasm-linux-{{ARCH}} to turn my requested calculation into a Wasm module and deliver its contract."
+policy:
+  allow_implicit_invocation: true

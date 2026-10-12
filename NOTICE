@@ -1,0 +1,31 @@
+Wasm Skill
+Copyright 2026 rkttu and contributors.
+https://github.com/rkttu/wasm-skill
+
+The project's original source code, scripts, examples, and documentation are
+licensed under the Apache License, Version 2.0. See LICENSE.
+
+Third-party components retain their original licenses:
+
+1. wcc / xcc, version 0.1.13
+   Copyright (c) 2024 tyfkda. MIT License.
+   Source: https://github.com/tyfkda/xcc
+   Revision: 9eea241c1331d54730b9173cfb11c4dea7c893a4
+   The unmodified upstream asset is vendored in vendor/wcc/wccfiles.zip.
+   Its compiler and headers are embedded in the portable skill's generated
+   compiler-data.mjs. MIT notices are in vendor/wcc/LICENSE.txt and the
+   portable skill's references/wcc-license.txt. No libc libraries from this
+   archive are linked or shipped in the portable skill.
+
+2. WebAssembly WASI SDK, version 34.0, and bundled components
+   Source: https://github.com/WebAssembly/wasi-sdk/releases/tag/wasi-sdk-34
+   Native Linux skills redistribute the unmodified upstream SDK archive.
+   The LLVM, WASI SDK, WASI libc, and musl license/attribution texts are in
+   template/toolchain/licenses and in each native skill's toolchain/licenses.
+   Source revisions are recorded in template/toolchain/source-revisions.json.
+   These components retain their upstream MIT, Apache-2.0, Apache-2.0 with
+   LLVM exceptions, and other licenses described in those notices.
+
+The project license does not replace the licenses or notices of these
+third-party components. The native SDK archives and the upstream wcc asset
+remain unmodified.

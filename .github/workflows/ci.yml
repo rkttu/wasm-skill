@@ -1,0 +1,227 @@
+name: Build, test, and release skills
+
+'on':
+  pull_request:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  native:
+    name: Native Linux ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: x64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.13'
+      - name: Download and verify the pinned native SDK
+        run: node tools/fetch-sdk.mjs ${{ matrix.arch }}
+      - name: Package the native skill
+        run: node tools/package.mjs ${{ matrix.arch }}
+      - name: Prepare the bundled native compiler
+        shell: bash
+        run: |
+          node "skills/c-wasm-linux-${{ matrix.arch }}/scripts/prepare.mjs" > compiler.json
+          node -e 'console.log("WASM_SKILL_TEST_CLANG="+JSON.parse(require("fs").readFileSync("compiler.json")).clang)' >> "$GITHUB_ENV"
+      - name: Verify ABI, expected results, and failure handling
+        run: node --test tests/test.mjs
+      - name: Build through the packaged native skill
+        run: >-
+          node skills/c-wasm-linux-${{ matrix.arch }}/scripts/build.mjs
+          --source skills/c-wasm-linux-${{ matrix.arch }}/examples/module.c
+          --spec skills/c-wasm-linux-${{ matrix.arch }}/examples/module.spec.json
+          --out-dir native-smoke-result
+      - name: Verify ZIP integrity, embedded SDK, architecture, and licenses
+        run: python3 tools/check-packages.py ${{ matrix.arch }}
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: skill-linux-${{ matrix.arch }}
+          path: |
+            dist/c-wasm-linux-${{ matrix.arch }}.zip
+            dist/SHA256SUMS-${{ matrix.arch }}
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
+  portable:
+    name: Portable compiler on Linux ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: x64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.13'
+      - name: Package the compact skill and check its resource limits
+        run: python3 tools/package-portable.py --fetch
+      - name: Verify portable ABI and failure handling
+        run: node --test tests/portable.mjs
+      - name: Verify the documented C syntax profile
+        run: node --test tests/wcc-syntax.mjs
+      - name: Execute the documented Python authoring workflow
+        run: python3 tests/authoring.py
+      - name: Diagnose the packaged Python entrypoint
+        run: python3 skills/c-wasm-portable-wcc/scripts/run.py doctor --self-test
+      - name: Build through the packaged Python entrypoint
+        run: >-
+          python3 skills/c-wasm-portable-wcc/scripts/run.py build
+          --source skills/c-wasm-portable-wcc/examples/module.c.txt
+          --spec skills/c-wasm-portable-wcc/examples/module.spec.json
+          --out-dir portable-smoke-result
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: matrix.arch == 'x64'
+        with:
+          name: skill-portable-wcc
+          path: |
+            dist/c-wasm-portable-wcc.zip
+            dist/SHA256SUMS-c-wasm-portable-wcc
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
+  assemble:
+    name: Verify and assemble all release packages
+    needs: [native, portable]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: skill-*
+          path: dist
+          merge-multiple: true
+      - name: Verify producer checksums and assemble the release manifest
+        working-directory: dist
+        shell: bash
+        run: |
+          sha256sum --check SHA256SUMS-x64 SHA256SUMS-arm64 SHA256SUMS-c-wasm-portable-wcc
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+
+          expected = {
+              'c-wasm-linux-x64.zip',
+              'c-wasm-linux-arm64.zip',
+              'c-wasm-portable-wcc.zip',
+          }
+          packages = sorted(Path('.').glob('*.zip'))
+          assert {package.name for package in packages} == expected, 'Unexpected release package set'
+          lines = []
+          for package in packages:
+              with package.open('rb') as stream:
+                  digest = hashlib.file_digest(stream, 'sha256').hexdigest()
+              lines.append(f'{digest}  {package.name}')
+              print(f'{package.name}: {package.stat().st_size} bytes; SHA-256 {digest}')
+          Path('SHA256SUMS').write_text('\n'.join(lines) + '\n', encoding='ascii')
+          PY
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-packages
+          path: |
+            dist/c-wasm-linux-x64.zip
+            dist/c-wasm-linux-arm64.zip
+            dist/c-wasm-portable-wcc.zip
+            dist/SHA256SUMS
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
+  release:
+    name: Publish the tagged GitHub release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: assemble
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-packages
+          path: dist
+      - name: Verify assets and create a new draft release
+        shell: bash
+        run: |
+          [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]
+          (cd dist && sha256sum --check SHA256SUMS)
+          cat > release-notes.md <<'EOF'
+          Agent skills that generate C functions, compile them to Wasm, and deliver verified contract metadata.
+
+          Packages:
+          - `c-wasm-linux-x64.zip`: Linux x64 with the bundled native WASI SDK compiler.
+          - `c-wasm-linux-arm64.zip`: Linux arm64 with the bundled native WASI SDK compiler.
+          - `c-wasm-portable-wcc.zip`: compact, architecture-independent wcc compiler with a Python entrypoint; requires Python 3.10+ and an existing Node.js 22+ runtime.
+
+          All variants are tested on Linux x64 and arm64. The compact package stays below the 50 MB budget and performs no runtime downloads or package installation. Copilot Studio execution still depends on the host exposing the required Python and Node.js capabilities.
+
+          Verify downloads with `sha256sum --check SHA256SUMS`.
+
+          Project code is licensed under Apache License 2.0. Bundled third-party compilers and headers retain their original licenses; see each package's license and notice resources.
+          EOF
+          gh release create "$GITHUB_REF_NAME" \
+            dist/c-wasm-linux-x64.zip dist/c-wasm-linux-arm64.zip \
+            dist/c-wasm-portable-wcc.zip dist/SHA256SUMS \
+            --verify-tag --draft --title "$GITHUB_REF_NAME" --notes-file release-notes.md
+      - name: Check uploaded assets before publication
+        shell: bash
+        run: |
+          gh api "repos/$GH_REPO/releases/tags/$GITHUB_REF_NAME" > release.json
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          import json
+
+          release = json.loads(Path('release.json').read_text(encoding='utf-8'))
+          assert release['draft'], 'The new release must remain a draft until asset verification passes'
+          expected = {file.name: file for file in Path('dist').iterdir() if file.is_file()}
+          assets = {asset['name']: asset for asset in release['assets']}
+          assert assets.keys() == expected.keys(), 'Uploaded release asset names do not match'
+          for name, file in expected.items():
+              asset = assets[name]
+              assert asset['state'] == 'uploaded' and asset['size'] == file.stat().st_size, name
+              if asset.get('digest'):
+                  with file.open('rb') as stream:
+                      digest = hashlib.file_digest(stream, 'sha256').hexdigest()
+                  assert asset['digest'] == f'sha256:{digest}', f'Remote asset digest mismatch: {name}'
+          PY
+      - name: Publish the verified release
+        run: gh release edit "$GITHUB_REF_NAME" --draft=false --latest

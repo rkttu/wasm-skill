@@ -1,0 +1,14 @@
+{
+  "name": "wcc",
+  "version": "0.1.13",
+  "source_repository": "https://github.com/tyfkda/xcc",
+  "source_revision": "9eea241c1331d54730b9173cfb11c4dea7c893a4",
+  "build_workflow": "https://github.com/tyfkda/xcc/actions/runs/36963620566",
+  "archive_url": "https://tyfkda.github.io/xcc/wccfiles.zip",
+  "archive_bytes": 166292,
+  "archive_sha256": "6e8f87c818a815bd534f8e16e1c537dbb2fff7d48ff8b18d1dd9f402c709d0d7",
+  "compiler_path": "usr/bin/cc",
+  "compiler_bytes": 350188,
+  "compiler_sha256": "b8d5751d6b538b8bfd97b7eaf111a8587b10e3c4201f6ba0941a5e8df0f34725",
+  "license": "MIT"
+}

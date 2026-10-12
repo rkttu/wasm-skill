@@ -1,0 +1,4 @@
+* text=auto eol=lf
+*.zip -text
+*.tar.gz -text
+*.wasm -text

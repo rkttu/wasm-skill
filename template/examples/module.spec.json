@@ -1,0 +1,32 @@
+{
+  "name": "numeric-helpers",
+  "description": "Clamp an integer, add signed 64-bit integers, and average two doubles.",
+  "exports": [
+    {
+      "name": "clamp_i32",
+      "description": "Clamp value to [minimum, maximum]; callers must provide minimum <= maximum.",
+      "params": [{"name": "value", "type": "int32_t"}, {"name": "minimum", "type": "int32_t"}, {"name": "maximum", "type": "int32_t"}],
+      "result": "int32_t"
+    },
+    {
+      "name": "sum_i64",
+      "description": "Add two signed 64-bit integers; the mathematical sum must fit int64_t.",
+      "params": [{"name": "a", "type": "int64_t"}, {"name": "b", "type": "int64_t"}],
+      "result": "int64_t"
+    },
+    {
+      "name": "mean_f64",
+      "description": "Return the arithmetic mean of two finite doubles.",
+      "params": [{"name": "a", "type": "double"}, {"name": "b", "type": "double"}],
+      "result": "double"
+    }
+  ],
+  "tests": [
+    {"export": "clamp_i32", "args": [-9, 0, 10], "expected": 0},
+    {"export": "clamp_i32", "args": [4, 0, 10], "expected": 4},
+    {"export": "clamp_i32", "args": [20, 0, 10], "expected": 10},
+    {"export": "sum_i64", "args": ["9007199254740993", "7"], "expected": "9007199254741000"},
+    {"export": "sum_i64", "args": ["-20", "3"], "expected": "-17"},
+    {"export": "mean_f64", "args": [1.5, 2.5], "expected": 2, "tolerance": 1e-12}
+  ]
+}
