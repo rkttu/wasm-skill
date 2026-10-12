@@ -111,6 +111,14 @@ WASM_SKILL_TEST_CLANG=/returned/path/bin/clang node --test tests/test.mjs
 
 Without `WASM_SKILL_TEST_CLANG`, the native test suite skips compiler integration cases. GitHub Actions defines native and compact checks on Linux x64 and arm64 and a tagged release pipeline that builds the three ZIP assets and checksums. Recorded local results and remaining validation limits are in [VALIDATION.md](VALIDATION.md).
 
+Pushing a version tag such as `v0.1.0` starts release publication. To resume an unpublished draft with the current workflow, dispatch it from `main` with the existing tag:
+
+```sh
+gh workflow run ci.yml --ref main -f release_tag=v0.1.0
+```
+
+This rebuilds the tagged source, verifies the draft's uploaded assets against the rebuilt packages, and publishes only after every check passes. Existing tags, assets, and published releases are preserved. Leave `release_tag` empty to run CI without publication.
+
 ## License
 
 Original project code and documentation are licensed under [Apache License 2.0](LICENSE). Every skill ZIP includes `LICENSE.txt` and `NOTICE.txt`. Bundled third-party components retain their own licenses: wcc and its headers use MIT; the WASI SDK contains LLVM and other components with their accompanying notices. See [NOTICE](NOTICE), the packaged toolchain notices, and `portable-template/references/wcc-license.txt`. The project license does not replace third-party terms.

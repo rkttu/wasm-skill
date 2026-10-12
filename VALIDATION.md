@@ -1,6 +1,10 @@
 # Validation record
 
-This document records checks completed on 2026-10-12 during development for the first `v0.1.0` release. Local execution used Windows ARM64, Python 3.13.7, and Node.js 24.21.0. Linux CI results must be assessed separately from these local checks. Actual Copilot Studio upload and hosted execution remain unverified.
+This document records checks completed on 2026-10-12 during development for the first `v0.1.0` release. Local execution used Windows ARM64, Python 3.13.7, and Node.js 24.21.0. Actual Copilot Studio upload and hosted execution remain unverified.
+
+## Linux CI
+
+The [first main-branch CI run](https://github.com/rkttu/wasm-skill/actions/runs/38252444161) passed all four execution jobs: native WASI SDK and portable wcc on both Linux x64 and arm64. Both native jobs extracted their matching bundled SDK, passed the full compiler integration suite without skips, built the packaged example, and checked ZIP integrity, architecture, and licenses. Both compact jobs passed the ABI and failure checks, measured C syntax suite, Python authoring workflow, packaged diagnostics, and example build. The assembly job verified all producer checksums and produced the three release ZIPs and aggregate checksum manifest.
 
 ## Native SDK skills
 
@@ -43,7 +47,7 @@ The Python authoring and diagnostic reuse guidance aims to reduce shell quoting 
 
 ## Remaining limits
 
-Local checks do not establish compatibility with a specific Copilot Studio tenant, the availability of Python subprocesses/Node/WASI in that tenant, or native Linux execution. The compact resources are shared across x64 and arm64, provided the required runtimes are available. GitHub Actions defines both Linux architecture checks for the native and compact skills; passing runs provide separate evidence for those hosts.
+Local checks do not establish compatibility with a specific Copilot Studio tenant or the availability of Python subprocesses/Node/WASI in that tenant. The compact resources are shared across x64 and arm64, provided the required runtimes are available. The Linux CI run above provides separate evidence for native and compact execution on those hosts.
 
 Tests establish behavior for their executed inputs, not universal correctness. Extreme floating-point values, integer overflow semantics, and other request-specific boundaries still require deliberate source design and relevant tests. The [runtime reference](portable-template/references/runtime.md) documents product-specific upload/runtime distinctions and links to official guidance.
 

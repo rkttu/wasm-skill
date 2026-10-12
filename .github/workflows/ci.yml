@@ -6,13 +6,19 @@ name: Build, test, and release skills
     branches: [main]
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Existing version tag to rebuild and publish; leave empty for CI only'
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+  group: ${{ github.workflow }}-${{ inputs.release_tag || (startsWith(github.ref, 'refs/tags/') && github.ref_name) || github.ref }}
+  cancel-in-progress: ${{ !(startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')) }}
 
 jobs:
   native:
@@ -31,6 +37,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          ref: ${{ inputs.release_tag || github.ref }}
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
@@ -82,6 +89,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          ref: ${{ inputs.release_tag || github.ref }}
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
@@ -164,7 +172,7 @@ jobs:
 
   release:
     name: Publish the tagged GitHub release
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
     needs: assemble
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -173,16 +181,37 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
     steps:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: release-packages
           path: dist
-      - name: Verify assets and create a new draft release
+      - name: Verify assets and find or create the draft release
         shell: bash
         run: |
-          [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]
           (cd dist && sha256sum --check SHA256SUMS)
+          cat > find-draft.py <<'PY'
+          from pathlib import Path
+          import json
+          import os
+          import sys
+
+          tag = os.environ['RELEASE_TAG']
+          pages = json.loads(Path('release-list.json').read_text(encoding='utf-8'))
+          matches = [release for page in pages for release in page if release['tag_name'] == tag]
+          assert len(matches) <= 1, f'Multiple releases match {tag}'
+          if matches:
+              release = matches[0]
+              assert release['draft'], f'Release {tag} is already published; refusing to modify it'
+              Path('release-id').write_text(str(int(release['id'])) + '\n', encoding='ascii')
+          else:
+              assert '--required' not in sys.argv, f'Created draft release {tag} was not found'
+              Path('release-id').write_text('', encoding='ascii')
+          PY
+          gh api --paginate --slurp "repos/$GH_REPO/releases" > release-list.json
+          python3 find-draft.py
           cat > release-notes.md <<'EOF'
           Agent skills that generate C functions, compile them to Wasm, and deliver verified contract metadata.
 
@@ -197,31 +226,53 @@ jobs:
 
           Project code is licensed under Apache License 2.0. Bundled third-party compilers and headers retain their original licenses; see each package's license and notice resources.
           EOF
-          gh release create "$GITHUB_REF_NAME" \
-            dist/c-wasm-linux-x64.zip dist/c-wasm-linux-arm64.zip \
-            dist/c-wasm-portable-wcc.zip dist/SHA256SUMS \
-            --verify-tag --draft --title "$GITHUB_REF_NAME" --notes-file release-notes.md
+          if [[ ! -s release-id ]]; then
+            gh release create "$RELEASE_TAG" \
+              dist/c-wasm-linux-x64.zip dist/c-wasm-linux-arm64.zip \
+              dist/c-wasm-portable-wcc.zip dist/SHA256SUMS \
+              --verify-tag --draft --title "$RELEASE_TAG" --notes-file release-notes.md
+            gh api --paginate --slurp "repos/$GH_REPO/releases" > release-list.json
+            python3 find-draft.py --required
+          fi
       - name: Check uploaded assets before publication
         shell: bash
         run: |
-          gh api "repos/$GH_REPO/releases/tags/$GITHUB_REF_NAME" > release.json
+          release_id="$(< release-id)"
+          gh api "repos/$GH_REPO/releases/$release_id" > release.json
           python3 - <<'PY'
           from pathlib import Path
           import hashlib
           import json
+          import os
+          import subprocess
 
           release = json.loads(Path('release.json').read_text(encoding='utf-8'))
-          assert release['draft'], 'The new release must remain a draft until asset verification passes'
+          assert release['tag_name'] == os.environ['RELEASE_TAG'], 'Draft release tag does not match'
+          assert release['draft'], 'The release must remain a draft until asset verification passes'
           expected = {file.name: file for file in Path('dist').iterdir() if file.is_file()}
           assets = {asset['name']: asset for asset in release['assets']}
           assert assets.keys() == expected.keys(), 'Uploaded release asset names do not match'
           for name, file in expected.items():
               asset = assets[name]
               assert asset['state'] == 'uploaded' and asset['size'] == file.stat().st_size, name
+              with file.open('rb') as stream:
+                  digest = hashlib.file_digest(stream, 'sha256').hexdigest()
               if asset.get('digest'):
-                  with file.open('rb') as stream:
-                      digest = hashlib.file_digest(stream, 'sha256').hexdigest()
                   assert asset['digest'] == f'sha256:{digest}', f'Remote asset digest mismatch: {name}'
+              else:
+                  downloads = Path('release-downloads')
+                  downloads.mkdir(exist_ok=True)
+                  downloaded = downloads / name
+                  endpoint = f"repos/{os.environ['GH_REPO']}/releases/assets/{int(asset['id'])}"
+                  with downloaded.open('wb') as stream:
+                      subprocess.run(['gh', 'api', endpoint, '-H', 'Accept: application/octet-stream'],
+                                     stdout=stream, check=True)
+                  with downloaded.open('rb') as stream:
+                      remote_digest = hashlib.file_digest(stream, 'sha256').hexdigest()
+                  assert remote_digest == digest, f'Downloaded asset digest mismatch: {name}'
           PY
       - name: Publish the verified release
-        run: gh release edit "$GITHUB_REF_NAME" --draft=false --latest
+        shell: bash
+        run: |
+          release_id="$(< release-id)"
+          gh api --method PATCH "repos/$GH_REPO/releases/$release_id" -F draft=false -f make_latest=true
